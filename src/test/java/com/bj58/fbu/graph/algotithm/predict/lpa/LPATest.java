@@ -4,13 +4,16 @@ import com.alibaba.fastjson.JSONObject;
 import com.bj58.fbu.graph.algotithm.predict.lpa.domain.EdgeEnt;
 import com.bj58.fbu.graph.algotithm.predict.lpa.domain.VertexEnt;
 import com.bj58.fbu.graph.algotithm.utils.BuildGraphUtils;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.graphx.Edge;
 import org.apache.spark.graphx.EdgeDirection;
 import org.apache.spark.graphx.Graph;
+import org.apache.spark.graphx.VertexRDD;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -19,6 +22,8 @@ import scala.Tuple2;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 /**
  * @Author huangjia
@@ -44,13 +49,13 @@ public class LPATest implements java.io.Serializable {
             jsc = new JavaSparkContext(conf);
         }
         JavaRDD<Edge<Map<String, String>>> edge = jsc.textFile(Objects.requireNonNull(LPATest.class.getClassLoader()
-                .getResource("no-weight/edge.txt")).getPath())
+                        .getResource("no-weight/edge.txt")).getPath())
                 .map((Function<String, Edge<Map<String, String>>>) ele -> {
                     EdgeEnt edgeEnt = JSONObject.parseObject(ele, EdgeEnt.class);
                     return new Edge<>(edgeEnt.getSrcId(), edgeEnt.getDstId(), edgeEnt.getProp());
                 });
         JavaRDD<Tuple2<Object, Map<String, String>>> vertices = jsc.textFile(Objects.requireNonNull(LPATest.class.getClassLoader()
-                .getResource("no-weight/vertex.txt")).getPath())
+                        .getResource("no-weight/vertex.txt")).getPath())
                 .map((Function<String, Tuple2<Object, Map<String, String>>>) ele -> {
                     VertexEnt vertexEnt = JSONObject.parseObject(ele, VertexEnt.class);
                     return new Tuple2<>(vertexEnt.getId(), vertexEnt.getAttr());
@@ -67,7 +72,7 @@ public class LPATest implements java.io.Serializable {
         LabelPropagationOps ops = new LabelPropagationOps();
         ops.setDirectEnums(EdgeDirection.Either());
         ops.setGraph(graph);
-        ops.setGraph(graph);
+        //ops.setGraph(graph);
         //标签
         ops.setLabelKey("label");
         //最大迭代次数
@@ -75,7 +80,26 @@ public class LPATest implements java.io.Serializable {
         //类型key
         ops.setType("type");
         Graph<Map<String, String>, Map<String, String>> resultGraph = ops.run();
-        resultGraph.vertices().toJavaRDD().take(10);
+
+        System.out.println("resultGraph:" + resultGraph);
+
+        //输出resultGraph的前10条数据
+        System.out.println("resultGraph top 10:" + resultGraph.vertices().toJavaRDD().take(10));
+
+        Map<String, List<String>> communities = resultGraph.vertices().toJavaRDD()
+                .mapToPair(vertex -> new Tuple2<>(vertex._2().get("label"), vertex._1().toString()))
+                .groupByKey()
+                .mapValues(vertices -> StreamSupport.stream(vertices.spliterator(), false)
+                        .collect(Collectors.toList()))
+                .collectAsMap();
+
+        for (Map.Entry<String, List<String>> entry : communities.entrySet()) {
+            System.out.println("Community " + entry.getKey() + ": " + entry.getValue());
+        }
+
+
+
+
         jsc.stop();
     }
 
